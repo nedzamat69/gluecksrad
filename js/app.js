@@ -23,6 +23,26 @@ function toApiBaseOrEmpty(value) {
   }
 }
 
+function resolveDefaultApiBase() {
+  const { origin, hostname, pathname } = window.location;
+  const segments = pathname.split("/").filter(Boolean);
+
+  // GitHub project pages live under /<repo>/...
+  if (hostname.endsWith(".github.io") && segments.length > 0) {
+    return `${origin}/${segments[0]}`;
+  }
+
+  if (!segments.length) {
+    return origin;
+  }
+
+  const basePath = pathname.endsWith("/")
+    ? pathname.replace(/\/+$/, "")
+    : pathname.slice(0, pathname.lastIndexOf("/"));
+
+  return `${origin}${basePath}`;
+}
+
 function resolveApiBase() {
   const fromConfig = toApiBaseOrEmpty(window.WHEEL_CONFIG?.apiOrigin);
   if (fromConfig) return fromConfig;
@@ -33,11 +53,24 @@ function resolveApiBase() {
   const fromQuery = toApiBaseOrEmpty(new URLSearchParams(window.location.search).get("api"));
   if (fromQuery) return fromQuery;
 
-  return toApiBaseOrEmpty(new URL(".", window.location.href).toString());
+  return resolveDefaultApiBase();
 }
 
 const API_BASE = resolveApiBase();
 const TLDS_URL = new URL("tlds.json", window.location.href).toString();
+const IS_GITHUB_PAGES = window.location.hostname.endsWith(".github.io");
+
+function hasSpinStore() {
+  return Boolean(
+    window.SpinStore &&
+      typeof window.SpinStore.claimSpin === "function" &&
+      typeof window.SpinStore.consumeSpin === "function"
+  );
+}
+
+function shouldUseLocalSpinStoreFallback() {
+  return IS_GITHUB_PAGES && hasSpinStore();
+}
 
 const prizes = [
   { label: "80% Rabatt", weight: 0.4 },
@@ -256,6 +289,27 @@ async function claimSpin() {
 
   const normalizedEmail = validation.normalized;
   emailInput.value = normalizedEmail;
+
+  if (shouldUseLocalSpinStoreFallback()) {
+    const localClaim = window.SpinStore.claimSpin();
+    claimInFlight = false;
+    setEmailGateLocked(false);
+    emailConfirmBtn.textContent = "E-Mail bestätigen";
+
+    if (localClaim && localClaim.ok) {
+      setSpinUnlocked(true);
+      lastClaim = { email: normalizedEmail, ok: true, time: Date.now() };
+      setEmailStatus(localClaim.message || "OK – 1 Dreh freigeschaltet", "success");
+      return;
+    }
+
+    setSpinUnlocked(false);
+    setEmailStatus(
+      (localClaim && localClaim.message) || "Diese E-Mail wurde bereits verwendet.",
+      "error"
+    );
+    return;
+  }
 
   if (claimAbort) claimAbort.abort();
   claimAbort = new AbortController();
@@ -503,6 +557,10 @@ function finishSpin(targetIndex, finalRotation) {
   spinning = false;
   setSpinUnlocked(false);
   updateSpinButton();
+
+  if (shouldUseLocalSpinStoreFallback()) {
+    window.SpinStore.consumeSpin();
+  }
 
   const computedWinnerIndex = getSegmentIndexFromRotation(finalRotation);
   const targetLabel = prizes[targetIndex].label;

@@ -1,0 +1,9 @@
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/claim-spin"
+  to = "/.netlify/functions/claim-spin"
+  status = 200
+  force = true
