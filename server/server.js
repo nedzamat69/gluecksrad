@@ -2,19 +2,22 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
-const PORT = Number(process.env.PORT || 3000);
+const PORT = Number(process.env.PORT) || 3000;
 const ROOT_DIR = path.join(__dirname, "..");
 const EMAILS_PATH = path.join(__dirname, "emails.txt");
 const TLDS_PATH = path.join(ROOT_DIR, "tlds.json");
 const ASCII_TLD_RE = /^[a-z]{2,63}$/;
 const PUNYCODE_TLD_RE = /^xn--[a-z0-9-]{1,59}$/;
-const CORS_ALLOW_ALL = String(process.env.CORS_ALLOW_ALL || "true").toLowerCase() !== "false";
-const ALLOWED_ORIGINS = new Set(
-  String(process.env.ALLOWED_ORIGINS || "")
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean)
-);
+const DEFAULT_ALLOWED_ORIGINS = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://localhost:63342"
+];
+const EXTRA_ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((v) => v.trim())
+  .filter(Boolean);
+const ALLOWED_ORIGINS = new Set([...DEFAULT_ALLOWED_ORIGINS, ...EXTRA_ALLOWED_ORIGINS]);
 let VALID_TLDS = new Set();
 let tldsLoaded = false;
 
@@ -88,14 +91,26 @@ function sendJson(res, statusCode, payload) {
 
 function setCorsHeaders(req, res) {
   const origin = req.headers.origin;
-  if (origin) {
-    if (CORS_ALLOW_ALL) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Vary", "Origin");
-    } else if (ALLOWED_ORIGINS.has(origin)) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Vary", "Origin");
+  let allowOrigin = false;
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    allowOrigin = true;
+  }
+
+  // Allow GitHub Pages frontends by default (e.g. https://username.github.io).
+  if (!allowOrigin && origin) {
+    try {
+      const parsed = new URL(origin);
+      if (parsed.protocol === "https:" && parsed.hostname.endsWith(".github.io")) {
+        allowOrigin = true;
+      }
+    } catch {
+      allowOrigin = false;
     }
+  }
+
+  if (allowOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
   }
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -303,5 +318,5 @@ const server = http.createServer(async (req, res) => {
 ensureEmailsFile();
 loadTlds();
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });

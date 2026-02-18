@@ -8,7 +8,33 @@ const themeToggle = document.getElementById("themeToggle");
 const emailInput = document.getElementById("emailInput");
 const emailConfirmBtn = document.getElementById("emailConfirmBtn");
 const emailStatus = document.getElementById("emailStatus");
-const spinStore = window.SpinStore || null;
+
+function toOriginOrEmpty(value) {
+  if (typeof value !== "string") return "";
+  const normalized = value.trim().replace(/\/+$/, "");
+  if (!normalized) return "";
+
+  try {
+    return new URL(normalized).origin;
+  } catch {
+    return "";
+  }
+}
+
+function resolveApiOrigin() {
+  const fromConfig = toOriginOrEmpty(window.WHEEL_CONFIG?.apiOrigin);
+  if (fromConfig) return fromConfig;
+
+  const fromGlobal = toOriginOrEmpty(window.WHEEL_API_ORIGIN);
+  if (fromGlobal) return fromGlobal;
+
+  const fromQuery = toOriginOrEmpty(new URLSearchParams(window.location.search).get("api"));
+  if (fromQuery) return fromQuery;
+
+  return window.location.origin;
+}
+
+const API_ORIGIN = resolveApiOrigin();
 
 const prizes = [
   { label: "80% Rabatt", weight: 0.4 },
@@ -33,13 +59,53 @@ let spinUnlocked = false;
 let confetti = [];
 let recentWins = [];
 let claimInFlight = false;
+let claimSeq = 0;
+let claimAbort = null;
+let lastClaim = { email: "", ok: false, time: 0 };
 
-function getSpinStateSafe() {
-  if (!spinStore) {
-    return { spinsLeft: 0, lastClaimTs: 0, claimedToday: false, nextClaimAt: null };
-  }
-  return spinStore.getSpinState();
+const ASCII_TLD_RE = /^[a-z]{2,63}$/;
+const PUNYCODE_TLD_RE = /^xn--[a-z0-9-]{1,59}$/;
+let VALID_TLDS = new Set();
+let tldsLoadFailed = false;
+
+function isValidTldToken(token) {
+  return token.length <= 63 && (ASCII_TLD_RE.test(token) || PUNYCODE_TLD_RE.test(token));
 }
+
+function toValidTldSet(list) {
+  if (!Array.isArray(list)) return new Set();
+  const cleaned = list
+    .map((v) => String(v || "").trim().toLowerCase())
+    .filter(isValidTldToken);
+  if (!cleaned.length) return new Set();
+  return new Set(cleaned);
+}
+
+async function loadTlds() {
+  try {
+    const response = await fetch(`${API_ORIGIN}/tlds.json`, { cache: "no-store" });
+    if (!response.ok) throw new Error("Could not load tlds.json");
+
+    const list = await response.json();
+    VALID_TLDS = toValidTldSet(list);
+    if (!VALID_TLDS.size) {
+      throw new Error("Empty or invalid TLD list");
+    }
+
+    tldsLoadFailed = false;
+    if (emailConfirmBtn) emailConfirmBtn.disabled = false;
+    setEmailStatus(`TLD-Liste geladen (${VALID_TLDS.size})`, "info");
+  } catch {
+    VALID_TLDS = new Set();
+    tldsLoadFailed = true;
+    if (emailConfirmBtn) emailConfirmBtn.disabled = true;
+    setEmailStatus(
+      "TLD-Liste konnte nicht geladen werden – tlds.json fehlt oder wird nicht ausgeliefert.",
+      "error"
+    );
+  }
+}
+const tldsReady = loadTlds();
 
 function updateSpinButton() {
   spinBtn.disabled = spinning || !spinUnlocked;
@@ -56,84 +122,206 @@ function setSpinUnlocked(value) {
   updateSpinButton();
 }
 
-function setClaimGateLocked(locked) {
+function setEmailGateLocked(locked) {
   if (emailInput) emailInput.disabled = locked;
   if (emailConfirmBtn) emailConfirmBtn.disabled = locked;
 }
 
-function formatNextClaimTime(ts) {
-  return new Date(ts).toLocaleString("de-DE", {
-    hour: "2-digit",
-    minute: "2-digit",
-    day: "2-digit",
-    month: "2-digit"
-  });
+function validateEmail(email) {
+  const normalized = String(email ?? "").trim().toLowerCase();
+
+  if (!normalized) {
+    return { ok: false, normalized, error: "E-Mail darf nicht leer sein" };
+  }
+
+  if (normalized.length < 6) {
+    return { ok: false, normalized, error: "E-Mail ist zu kurz" };
+  }
+
+  if (normalized.length > 254) {
+    return { ok: false, normalized, error: "E-Mail ist zu lang" };
+  }
+
+  if (/[^\x00-\x7F]/.test(normalized)) {
+    return { ok: false, normalized, error: "Nur ASCII-Zeichen sind erlaubt" };
+  }
+
+  if (/\s/.test(normalized)) {
+    return { ok: false, normalized, error: "E-Mail darf keine Leerzeichen enthalten" };
+  }
+
+  const atCount = (normalized.match(/@/g) || []).length;
+  if (atCount !== 1) {
+    return { ok: false, normalized, error: "E-Mail muss genau ein @ enthalten" };
+  }
+
+  const [localPart, domainPart] = normalized.split("@");
+  if (!localPart || !domainPart) {
+    return { ok: false, normalized, error: "E-Mail ist unvollstaendig" };
+  }
+
+  if (localPart.startsWith(".") || localPart.endsWith(".")) {
+    return { ok: false, normalized, error: "Lokaler Teil darf nicht mit Punkt starten oder enden" };
+  }
+
+  if (localPart.includes("..") || domainPart.includes("..")) {
+    return { ok: false, normalized, error: "Zwei Punkte hintereinander sind nicht erlaubt" };
+  }
+
+  if (!/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(localPart)) {
+    return { ok: false, normalized, error: "Lokaler Teil enthält ungültige Zeichen" };
+  }
+
+  if (
+    domainPart.startsWith("-") ||
+    domainPart.endsWith("-") ||
+    domainPart.startsWith(".") ||
+    domainPart.endsWith(".")
+  ) {
+    return { ok: false, normalized, error: "Domain ist ungültig" };
+  }
+
+  if (!/^[a-z0-9.-]+$/.test(domainPart)) {
+    return { ok: false, normalized, error: "Domain enthält ungültige Zeichen" };
+  }
+
+  if (!domainPart.includes(".")) {
+    return { ok: false, normalized, error: "Domain muss einen Punkt enthalten" };
+  }
+
+  const labels = domainPart.split(".");
+  const tld = labels[labels.length - 1] || "";
+
+  if (tld.length < 2) {
+    return { ok: false, normalized, error: "Top-Level-Domain ist zu kurz" };
+  }
+
+  if (!VALID_TLDS.has(tld)) {
+    return { ok: false, normalized, error: "Top-Level-Domain ist nicht gültig" };
+  }
+
+  for (const label of labels) {
+    if (!label || label.length > 63 || label.startsWith("-") || label.endsWith("-")) {
+      return { ok: false, normalized, error: "Domain ist ungültig" };
+    }
+  }
+
+  return { ok: true, normalized };
 }
 
-function setClaimDefaultStatus() {
-  const state = getSpinStateSafe();
-  if (state.spinsLeft > 0) {
-    setEmailStatus(`Verfügbare Spins: ${state.spinsLeft}`, "success");
-    return;
-  }
-
-  if (state.claimedToday) {
-    const nextAt = state.nextClaimAt ? formatNextClaimTime(state.nextClaimAt) : "morgen";
-    setEmailStatus(`Heute schon geclaimt. Nächster Claim: ${nextAt}`, "info");
-    return;
-  }
-
-  setEmailStatus("Hole dir deinen täglichen Spin über \"Claim Spin\".", "info");
-}
-
-function syncClaimUi() {
-  const state = getSpinStateSafe();
-  const claimBlockedToday = state.claimedToday;
-
-  if (emailConfirmBtn) {
-    emailConfirmBtn.disabled = claimInFlight || claimBlockedToday || !spinStore;
-    emailConfirmBtn.textContent = claimInFlight
-      ? "Claim..."
-      : claimBlockedToday
-        ? "Heute geclaimt"
-        : "Claim Spin";
-  }
-
-  if (emailInput) {
-    emailInput.value = "";
-    emailInput.placeholder = "Statischer Modus: kein Backend nötig";
-    emailInput.disabled = true;
-  }
-
-  setSpinUnlocked(state.spinsLeft > 0);
+function isValidEmail(email) {
+  return validateEmail(email).ok;
 }
 
 async function claimSpin() {
-  if (!spinStore || !emailConfirmBtn) {
-    setEmailStatus("Spin-Store nicht verfügbar.", "error");
-    return;
-  }
-
+  if (!emailInput || !emailConfirmBtn) return;
   if (claimInFlight) {
-    setEmailStatus("Bitte kurz warten.", "info");
+    setEmailStatus("Wird bereits geprüft…", "info");
     return;
   }
 
   claimInFlight = true;
-  setClaimGateLocked(true);
-  syncClaimUi();
+  const seq = ++claimSeq;
+  setEmailGateLocked(true);
+  emailConfirmBtn.textContent = "Prüfe...";
+  setEmailStatus("E-Mail wird geprüft...", "info");
+
+  await tldsReady;
+
+  if (tldsLoadFailed || !VALID_TLDS.size) {
+    claimInFlight = false;
+    setEmailGateLocked(false);
+    emailConfirmBtn.textContent = "E-Mail bestätigen";
+    setSpinUnlocked(false);
+    setEmailStatus(
+      "TLD-Liste konnte nicht geladen werden – tlds.json fehlt oder wird nicht ausgeliefert.",
+      "error"
+    );
+    return;
+  }
+
+  const validation = validateEmail(emailInput.value);
+
+  if (!validation.ok) {
+    claimInFlight = false;
+    setEmailGateLocked(false);
+    emailConfirmBtn.textContent = "E-Mail bestätigen";
+    setSpinUnlocked(false);
+    setEmailStatus(validation.error || "Ungültige E-Mail", "error");
+    return;
+  }
+
+  const normalizedEmail = validation.normalized;
+  emailInput.value = normalizedEmail;
+
+  if (claimAbort) claimAbort.abort();
+  claimAbort = new AbortController();
+  const timeoutId = setTimeout(() => {
+    if (claimAbort) claimAbort.abort();
+  }, 8000);
 
   try {
-    const result = spinStore.claimSpin();
-    if (result.ok) {
-      setEmailStatus(`${result.message} Verfügbare Spins: ${result.spinsLeft}`, "success");
+    const response = await fetch(`${API_ORIGIN}/api/claim-spin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: normalizedEmail }),
+      signal: claimAbort.signal
+    });
+
+    if (seq !== claimSeq) return;
+
+    if (response.ok) {
+      setSpinUnlocked(true);
+      lastClaim = { email: normalizedEmail, ok: true, time: Date.now() };
+      setEmailStatus("OK – 1 Dreh freigeschaltet", "success");
+    } else if (response.status === 409) {
+      if (
+        lastClaim.ok &&
+        lastClaim.email === normalizedEmail &&
+        Date.now() - lastClaim.time < 2000
+      ) {
+        setSpinUnlocked(true);
+        setEmailStatus("OK – 1 Dreh freigeschaltet", "success");
+        return;
+      }
+
+      setSpinUnlocked(false);
+      let message = "Fehler beim Prüfen der E-Mail.";
+      try {
+        const payload = await response.json();
+        if (payload && typeof payload.message === "string" && payload.message.trim()) {
+          message = payload.message.trim();
+        }
+      } catch {
+        // Keep fallback message.
+      }
+      setEmailStatus(message, "error");
     } else {
-      setEmailStatus(result.message || "Claim nicht möglich.", "error");
+      setSpinUnlocked(false);
+      let message = "Fehler beim Prüfen der E-Mail.";
+      try {
+        const payload = await response.json();
+        if (payload && typeof payload.message === "string" && payload.message.trim()) {
+          message = payload.message.trim();
+        }
+      } catch {
+        // Keep fallback message.
+      }
+      setEmailStatus(message, "error");
     }
+  } catch {
+    if (seq !== claimSeq) return;
+    setSpinUnlocked(false);
+    setEmailStatus("Server nicht erreichbar.", "error");
   } finally {
+    clearTimeout(timeoutId);
+    if (seq !== claimSeq) return;
     claimInFlight = false;
-    setClaimGateLocked(false);
-    syncClaimUi();
+    claimAbort = null;
+    if (!spinUnlocked) {
+      setEmailGateLocked(false);
+    }
+    emailConfirmBtn.textContent = "E-Mail bestätigen";
   }
 }
 
@@ -276,18 +464,8 @@ function drawWheel(rotation = 0) {
 }
 
 function spin() {
-  if (spinning || !spinStore) return;
-  const consumeResult = spinStore.consumeSpin();
-  if (!consumeResult.ok) {
-    setSpinUnlocked(false);
-    setEmailStatus("Kein Spin verfügbar. Bitte zuerst claimen.", "error");
-    syncClaimUi();
-    return;
-  }
-
+  if (spinning || !spinUnlocked) return;
   spinning = true;
-  setSpinUnlocked(consumeResult.spinsLeft > 0);
-  setEmailStatus(`Spin gestartet. Verbleibende Spins: ${consumeResult.spinsLeft}`, "info");
   updateSpinButton();
 
   const targetIndex = weightedPick(prizes);
@@ -320,6 +498,7 @@ function spin() {
 
 function finishSpin(targetIndex, finalRotation) {
   spinning = false;
+  setSpinUnlocked(false);
   updateSpinButton();
 
   const computedWinnerIndex = getSegmentIndexFromRotation(finalRotation);
@@ -346,8 +525,10 @@ function finishSpin(targetIndex, finalRotation) {
   addRecentWin(prize.label);
   launchConfetti();
 
-  syncClaimUi();
-  setClaimDefaultStatus();
+  if (emailInput) emailInput.value = "";
+  setEmailGateLocked(false);
+  emailConfirmBtn.textContent = "E-Mail bestätigen";
+  setEmailStatus("Für den nächsten Dreh neue E-Mail nötig.", "info");
 }
 
 function highlightPrize(index) {
@@ -411,6 +592,15 @@ function debugSimulateSpins(count = 1000) {
 spinBtn.addEventListener("click", spin);
 emailConfirmBtn.addEventListener("click", claimSpin);
 
+if (emailInput) {
+  emailInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      claimSpin();
+    }
+  });
+}
+
 document.addEventListener("keydown", (e) => {
   if (e.code !== "Space" && e.key !== " ") return;
   if (e.repeat) return;
@@ -439,10 +629,7 @@ initTheme();
 loadRecentWins();
 renderRecentWins();
 resizeCanvas();
-syncClaimUi();
-if (!spinStore) {
-  setEmailStatus("Lokaler Spin-Store konnte nicht geladen werden.", "error");
-} else {
-  setClaimDefaultStatus();
-}
+setSpinUnlocked(false);
+if (emailConfirmBtn) emailConfirmBtn.disabled = true;
+setEmailStatus("Lade TLD-Liste...", "info");
 // debugSimulateSpins(1000);
