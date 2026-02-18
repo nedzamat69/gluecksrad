@@ -8,7 +8,16 @@ const themeToggle = document.getElementById("themeToggle");
 const emailInput = document.getElementById("emailInput");
 const emailConfirmBtn = document.getElementById("emailConfirmBtn");
 const emailStatus = document.getElementById("emailStatus");
-const API_ORIGIN = "https://nedzamat69.github.io/gluecksrad/";
+const API_BASE =
+  (typeof window !== "undefined" &&
+    typeof window.WHEEL_API_BASE === "string" &&
+    window.WHEEL_API_BASE.trim())
+    ? new URL(window.WHEEL_API_BASE.trim(), window.location.href).toString()
+    : document.baseURI;
+
+function buildUrl(path, base = document.baseURI) {
+  return new URL(path, base).toString();
+}
 
 const prizes = [
   { label: "80% Rabatt", weight: 0.4 },
@@ -57,7 +66,7 @@ function toValidTldSet(list) {
 
 async function loadTlds() {
   try {
-    const response = await fetch(`${API_ORIGIN}/tlds.json`, { cache: "no-store" });
+    const response = await fetch(buildUrl("tlds.json"), { cache: "no-store" });
     if (!response.ok) throw new Error("Could not load tlds.json");
 
     const list = await response.json();
@@ -235,7 +244,7 @@ async function claimSpin() {
   }, 8000);
 
   try {
-    const response = await fetch(`${API_ORIGIN}/api/claim-spin`, {
+    const response = await fetch(buildUrl("api/claim-spin", API_BASE), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: normalizedEmail }),
