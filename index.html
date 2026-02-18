@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Glücksrad</title>
+  <link rel="icon" href="./favicon.ico" sizes="any" />
   <link rel="stylesheet" href="./css/styles.css" />
 </head>
 <body>
@@ -33,20 +34,20 @@
       </div>
       <button class="spin-btn" id="spinBtn" type="button">DREHEN</button>
       <div class="email-gate" aria-live="polite">
-        <label class="email-label" for="emailInput">E-Mail eingeben zum Drehen</label>
+        <label class="email-label" for="emailInput">Täglichen Spin claimen</label>
         <div class="email-row">
           <input
             class="email-input"
             id="emailInput"
-            type="email"
-            name="email"
-            placeholder="name@beispiel.de"
-            autocomplete="email"
-            required
+            type="text"
+            name="claim_hint"
+            placeholder="Statischer Modus aktiv"
+            autocomplete="off"
+            disabled
           />
-          <button class="email-btn" id="emailConfirmBtn" type="button">E-Mail bestätigen</button>
+          <button class="email-btn" id="emailConfirmBtn" type="button">Claim Spin</button>
         </div>
-        <div class="email-status" id="emailStatus">Bitte E-Mail bestätigen, um zu drehen.</div>
+        <div class="email-status" id="emailStatus">Hole dir deinen täglichen Spin.</div>
       </div>
       <div class="result" id="result">Letzter Gewinn: –</div>
     </section>
@@ -65,6 +66,7 @@
     </aside>
   </main>
 
+  <script src="./js/spinStore.js"></script>
   <script src="./js/app.js"></script>
 </body>
 </html>
