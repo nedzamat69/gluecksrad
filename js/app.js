@@ -9,32 +9,34 @@ const emailInput = document.getElementById("emailInput");
 const emailConfirmBtn = document.getElementById("emailConfirmBtn");
 const emailStatus = document.getElementById("emailStatus");
 
-function toOriginOrEmpty(value) {
+function toApiBaseOrEmpty(value) {
   if (typeof value !== "string") return "";
   const normalized = value.trim().replace(/\/+$/, "");
   if (!normalized) return "";
 
   try {
-    return new URL(normalized).origin;
+    const parsed = new URL(normalized, window.location.href);
+    const cleanPath = parsed.pathname.replace(/\/+$/, "");
+    return `${parsed.origin}${cleanPath}`;
   } catch {
     return "";
   }
 }
 
-function resolveApiOrigin() {
-  const fromConfig = toOriginOrEmpty(window.WHEEL_CONFIG?.apiOrigin);
+function resolveApiBase() {
+  const fromConfig = toApiBaseOrEmpty(window.WHEEL_CONFIG?.apiOrigin);
   if (fromConfig) return fromConfig;
 
-  const fromGlobal = toOriginOrEmpty(window.WHEEL_API_ORIGIN);
+  const fromGlobal = toApiBaseOrEmpty(window.WHEEL_API_ORIGIN);
   if (fromGlobal) return fromGlobal;
 
-  const fromQuery = toOriginOrEmpty(new URLSearchParams(window.location.search).get("api"));
+  const fromQuery = toApiBaseOrEmpty(new URLSearchParams(window.location.search).get("api"));
   if (fromQuery) return fromQuery;
 
-  return window.location.origin;
+  return toApiBaseOrEmpty(new URL(".", window.location.href).toString());
 }
 
-const API_ORIGIN = resolveApiOrigin();
+const API_BASE = resolveApiBase();
 const TLDS_URL = new URL("tlds.json", window.location.href).toString();
 
 const prizes = [
@@ -262,7 +264,7 @@ async function claimSpin() {
   }, 8000);
 
   try {
-    const response = await fetch(`${API_ORIGIN}/api/claim-spin`, {
+    const response = await fetch(`${API_BASE}/api/claim-spin`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: normalizedEmail }),
