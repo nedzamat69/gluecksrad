@@ -23,27 +23,7 @@ function toApiBaseOrEmpty(value) {
   }
 }
 
-function resolveDefaultApiBase() {
-  const { origin, hostname, pathname } = window.location;
-  const segments = pathname.split("/").filter(Boolean);
-
-  // GitHub project pages live under /<repo>/...
-  if (hostname.endsWith(".github.io") && segments.length > 0) {
-    return `${origin}/${segments[0]}`;
-  }
-
-  if (!segments.length) {
-    return origin;
-  }
-
-  const basePath = pathname.endsWith("/")
-    ? pathname.replace(/\/+$/, "")
-    : pathname.slice(0, pathname.lastIndexOf("/"));
-
-  return `${origin}${basePath}`;
-}
-
-function resolveApiBase() {
+function resolveConfiguredApiBase() {
   const fromConfig = toApiBaseOrEmpty(window.WHEEL_CONFIG?.apiOrigin);
   if (fromConfig) return fromConfig;
 
@@ -53,10 +33,23 @@ function resolveApiBase() {
   const fromQuery = toApiBaseOrEmpty(new URLSearchParams(window.location.search).get("api"));
   if (fromQuery) return fromQuery;
 
-  return resolveDefaultApiBase();
+  return "";
 }
 
-const API_BASE = resolveApiBase();
+function resolveClaimEndpoint() {
+  const configured = resolveConfiguredApiBase();
+  if (configured) return `${configured}/api/claim-spin`;
+
+  const host = window.location.hostname;
+  const isLocalhost = host === "localhost" || host === "127.0.0.1";
+  if (isLocalhost && window.location.port && window.location.port !== "3000") {
+    return "http://localhost:3000/api/claim-spin";
+  }
+
+  return "/api/claim-spin";
+}
+
+const CLAIM_ENDPOINT = resolveClaimEndpoint();
 const TLDS_URL = new URL("tlds.json", window.location.href).toString();
 const IS_GITHUB_PAGES = window.location.hostname.endsWith(".github.io");
 
@@ -318,7 +311,7 @@ async function claimSpin() {
   }, 8000);
 
   try {
-    const response = await fetch(`${API_BASE}/api/claim-spin`, {
+    const response = await fetch(CLAIM_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: normalizedEmail }),

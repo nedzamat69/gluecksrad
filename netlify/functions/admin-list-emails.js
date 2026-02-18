@@ -7,15 +7,11 @@ function json(statusCode, payload) {
       "Content-Type": "application/json; charset=utf-8",
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Headers": "content-type, authorization",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
       "Cache-Control": "no-store"
     },
     body: JSON.stringify(payload)
   };
-}
-
-function normalizeEmail(input) {
-  return String(input || "").trim().toLowerCase();
 }
 
 function getSupabaseClient() {
@@ -37,25 +33,19 @@ exports.handler = async function handler(event) {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "content-type, authorization",
-        "Access-Control-Allow-Methods": "POST, OPTIONS"
+        "Access-Control-Allow-Methods": "GET, OPTIONS"
       }
     };
   }
 
-  if (event.httpMethod !== "POST") {
+  if (event.httpMethod !== "GET") {
     return json(405, { ok: false, message: "Method Not Allowed" });
   }
 
-  let body = {};
-  try {
-    body = event.body ? JSON.parse(event.body) : {};
-  } catch {
-    return json(400, { ok: false, message: "Invalid JSON body" });
-  }
-
-  const email = normalizeEmail(body.email);
-  if (!email || email.length < 5 || !email.includes("@")) {
-    return json(400, { ok: false, message: "E-Mail darf nicht leer sein" });
+  const authHeader = String(header(event, "authorization") || "");
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!token || !process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) {
+    return json(401, { ok: false, message: "Unauthorized" });
   }
 
   const supabase = getSupabaseClient();
@@ -63,24 +53,15 @@ exports.handler = async function handler(event) {
     return json(500, { ok: false, message: "Serverfehler" });
   }
 
-  const ip = header(event, "x-nf-client-connection-ip") || header(event, "x-forwarded-for");
-  const userAgent = header(event, "user-agent");
+  const { data, error } = await supabase
+    .from("email_claims")
+    .select("email,created_at")
+    .order("created_at", { ascending: false })
+    .limit(5000);
 
-  const { error } = await supabase.from("email_claims").insert([
-    {
-      email,
-      ip: String(ip).slice(0, 255),
-      user_agent: String(userAgent).slice(0, 1000)
-    }
-  ]);
-
-  if (!error) {
-    return json(200, { ok: true, message: "OK – 1 Dreh freigeschaltet" });
+  if (error) {
+    return json(500, { ok: false, message: "Serverfehler" });
   }
 
-  if (error.code === "23505" || /duplicate key/i.test(String(error.message || ""))) {
-    return json(409, { ok: false, message: "E-Mail wurde schon verwendet." });
-  }
-
-  return json(500, { ok: false, message: "Serverfehler" });
+  return json(200, { ok: true, data: data || [] });
 };

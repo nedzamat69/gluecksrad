@@ -1,9 +1,12 @@
 [build]
-  publish = "."
   functions = "netlify/functions"
 
 [[redirects]]
   from = "/api/claim-spin"
   to = "/.netlify/functions/claim-spin"
   status = 200
-  force = true
+
+[[redirects]]
+  from = "/api/admin-list-emails"
+  to = "/.netlify/functions/admin-list-emails"
+  status = 200

@@ -8,5 +8,8 @@
     "test:email": "node scripts/email-validation-tests.mjs",
     "test": "npm run test:email"
   },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4"
+  },
   "private": true
 }
