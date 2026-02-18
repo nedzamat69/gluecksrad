@@ -8,7 +8,7 @@ const themeToggle = document.getElementById("themeToggle");
 const emailInput = document.getElementById("emailInput");
 const emailConfirmBtn = document.getElementById("emailConfirmBtn");
 const emailStatus = document.getElementById("emailStatus");
-const API_ORIGIN = "http://localhost:3000";
+const API_ORIGIN = "https://nedzamat69.github.io/gluecksrad/";
 
 const prizes = [
   { label: "80% Rabatt", weight: 0.4 },
