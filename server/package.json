@@ -1,0 +1,10 @@
+{
+  "name": "wheel-server",
+  "version": "1.0.0",
+  "description": "Local backend for email gate",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "private": true
+}

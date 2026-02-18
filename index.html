@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="de" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Glücksrad</title>
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">Glücksrad</div>
+    </div>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Theme umschalten">
+      <span class="toggle-track">
+        <span class="toggle-thumb"></span>
+      </span>
+      <span class="toggle-label">Light</span>
+    </button>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar left">
+      <h2>Letzte Gewinne</h2>
+      <ul class="recent-list" id="recentWins"></ul>
+    </aside>
+
+    <section class="wheel-panel center">
+      <div class="wheel-wrap">
+        <div class="pointer" aria-hidden="true"></div>
+        <canvas id="wheel" width="520" height="520" aria-label="Glücksrad"></canvas>
+        <img class="wheel-logo" src="./assets/logo.png" alt="Logo" />
+      </div>
+      <button class="spin-btn" id="spinBtn" type="button">DREHEN</button>
+      <div class="email-gate" aria-live="polite">
+        <label class="email-label" for="emailInput">E-Mail eingeben zum Drehen</label>
+        <div class="email-row">
+          <input
+            class="email-input"
+            id="emailInput"
+            type="email"
+            name="email"
+            placeholder="name@beispiel.de"
+            autocomplete="email"
+            required
+          />
+          <button class="email-btn" id="emailConfirmBtn" type="button">E-Mail bestätigen</button>
+        </div>
+        <div class="email-status" id="emailStatus">Bitte E-Mail bestätigen, um zu drehen.</div>
+      </div>
+      <div class="result" id="result">Letzter Gewinn: –</div>
+    </section>
+
+    <aside class="sidebar right">
+      <h2>Chancen und Preis</h2>
+      <ul class="prize-list" id="prizeList">
+
+          <li data-index="1"><span>35%</span><span>3% Rabatt</span></li>
+          <li data-index="2"><span>30%</span><span>5% Rabatt</span></li>
+          <li data-index="3"><span>20%</span><span>10% Rabatt</span></li>
+          <li data-index="4"><span>10%</span><span>15% Rabatt</span></li>
+          <li data-index="5"><span>4.6%</span><span>25% Rabatt</span></li>
+          <li data-index="0"><span>0.4%</span><span>80% Rabatt</span></li>
+      </ul>
+    </aside>
+  </main>
+
+  <script src="./js/app.js"></script>
+</body>
+</html>

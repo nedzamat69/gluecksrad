@@ -1,0 +1,12 @@
+{
+  "name": "0uefaV2",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "update:tlds": "node scripts/update-tlds.mjs",
+    "test:email": "node scripts/email-validation-tests.mjs",
+    "test": "npm run test:email"
+  },
+  "private": true
+}
