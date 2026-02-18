@@ -35,6 +35,7 @@ function resolveApiOrigin() {
 }
 
 const API_ORIGIN = resolveApiOrigin();
+const TLDS_URL = new URL("tlds.json", window.location.href).toString();
 
 const prizes = [
   { label: "80% Rabatt", weight: 0.4 },
@@ -83,7 +84,7 @@ function toValidTldSet(list) {
 
 async function loadTlds() {
   try {
-    const response = await fetch(`${API_ORIGIN}/tlds.json`, { cache: "no-store" });
+    const response = await fetch(TLDS_URL, { cache: "no-store" });
     if (!response.ok) throw new Error("Could not load tlds.json");
 
     const list = await response.json();
